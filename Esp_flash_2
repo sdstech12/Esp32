@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Android ESP32 Web Tool</title>
+    <style>
+        /* Mobile-friendly styling */
+        body { font-family: sans-serif; background: #121212; color: #e0e0e0; padding: 15px; margin: 0; }
+        .card { background: #1e1e1e; padding: 20px; border-radius: 12px; border: 1px solid #333; margin-bottom: 15px; }
+        button { 
+            width: 100%; padding: 15px; margin: 5px 0; border-radius: 8px; border: none; 
+            font-weight: bold; font-size: 16px; cursor: pointer; 
+        }
+        .btn-blue { background: #3498db; color: white; }
+        .btn-green { background: #27ae60; color: white; }
+        .btn-red { background: #e74c3c; color: white; }
+        .status { padding: 10px; border-radius: 5px; margin: 10px 0; font-size: 14px; display: none; }
+        #log { background: #000; color: #0f0; padding: 10px; height: 200px; overflow-y: auto; font-family: monospace; font-size: 12px; border-radius: 5px; }
+        input[type="file"] { display: none; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h2>📲 Android ESP32 Flasher</h2>
+        <p style="font-size: 12px; color: #888;">Note: Ensure OTG is enabled in your Android System Settings.</p>
+        
+        <div id="statusBox" class="status"></div>
+
+        <button class="btn-blue" id="btnConnect">1. Select & Connect ESP</button>
+        
+        <label class="btn-blue" style="display: block; text-align: center; padding: 15px; margin-top: 5px; background: #8e44ad; border-radius: 8px;">
+            2. Load Firmware (.bin)
+            <input type="file" id="fileInput" accept=".bin">
+        </label>
+        <div id="fileName" style="text-align: center; margin-top: 5px; font-size: 12px;">No file selected</div>
+
+        <button class="btn-green" id="btnFlash" disabled>3. Flash Firmware</button>
+        <button class="btn-red" id="btnReset" onclick="location.reload()">Reset App</button>
+    </div>
+
+    <div class="card">
+        <h3>Log Output</h3>
+        <div id="log"></div>
+    </div>
+
+    <script src="https://unpkg.com/@esphome/esptool-js@0.4.0/dist/webflasher-esptool.js"></script>
+
+    <script>
+        let port, esploader, fileData;
+        const logEl = document.getElementById('log');
+        const statusEl = document.getElementById('statusBox');
+
+        function log(msg) {
+            const d = new Date();
+            logEl.innerHTML += `[${d.toLocaleTimeString()}] ${msg}<br>`;
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        function showStatus(msg, color) {
+            statusEl.style.display = 'block';
+            statusEl.style.background = color;
+            statusEl.innerText = msg;
+        }
+
+        // Android Web Serial Request
+        document.getElementById('btnConnect').onclick = async () => {
+            if (!("serial" in navigator)) {
+                alert("Web Serial not supported. Enable chrome://flags/#enable-experimental-web-platform-features");
+                return;
+            }
+
+            try {
+                // On Android, passing NO filters is the most compatible way
+                port = await navigator.serial.requestPort({});
+                log("Port selected by user.");
+                
+                await port.open({ baudRate: 115200 });
+                log("Port opened at 115200.");
+
+                const transport = new EsptoolJS.Transport(port);
+                esploader = new EsptoolJS.ESPLoader(transport);
+                
+                showStatus("Connecting to chip...", "#f39c12");
+                await esploader.main_fn();
+                const chip = await esploader.chip;
+                
+                showStatus(`Connected: ${chip.chip_name}`, "#27ae60");
+                log(`Device: ${chip.chip_name} detected.`);
+                
+                if (fileData) document.getElementById('btnFlash').disabled = false;
+
+            } catch (err) {
+                log("Error: " + err.message);
+                showStatus("Connection Failed", "#e74c3c");
+            }
+        };
+
+        // File Selection
+        document.getElementById('fileInput').onchange = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                fileData = ev.target.result;
+                document.getElementById('fileName').innerText = "Loaded: " + file.name;
+                log("Firmware loaded into memory.");
+                if (esploader) document.getElementById('btnFlash').disabled = false;
+            };
+            reader.readAsBinaryString(file);
+        };
+
+        // Flash Logic
+        document.getElementById('btnFlash').onclick = async () => {
+            try {
+                log("Starting flash process...");
+                showStatus("Flashing... 0%", "#3498db");
+
+                await esploader.write_flash({
+                    fileArray: [{ data: fileData, address: 0x1000 }],
+                    flashSize: 'keep',
+                    eraseAll: false,
+                    compress: true,
+                    reportProgress: (curr, total) => {
+                        const pct = Math.round((curr / total) * 100);
+                        showStatus(`Flashing... ${pct}%`, "#3498db");
+                    }
+                });
+
+                showStatus("Flash Complete!", "#27ae60");
+                log("✅ Success! Reset your ESP32.");
+            } catch (err) {
+                log("Flash Error: " + err.message);
+                showStatus("Flash Failed", "#e74c3c");
+            }
+        };
+    </script>
+</body>
+</html>
