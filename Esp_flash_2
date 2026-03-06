@@ -139,3 +139,33 @@
     </script>
 </body>
 </html>
+            reader.readAsBinaryString(file);
+        };
+
+        // Flash Logic
+        document.getElementById('btnFlash').onclick = async () => {
+            try {
+                log("Starting flash process...");
+                showStatus("Flashing... 0%", "#3498db");
+
+                await esploader.write_flash({
+                    fileArray: [{ data: fileData, address: 0x1000 }],
+                    flashSize: 'keep',
+                    eraseAll: false,
+                    compress: true,
+                    reportProgress: (curr, total) => {
+                        const pct = Math.round((curr / total) * 100);
+                        showStatus(`Flashing... ${pct}%`, "#3498db");
+                    }
+                });
+
+                showStatus("Flash Complete!", "#27ae60");
+                log("✅ Success! Reset your ESP32.");
+            } catch (err) {
+                log("Flash Error: " + err.message);
+                showStatus("Flash Failed", "#e74c3c");
+            }
+        };
+    </script>
+</body>
+</html>
