@@ -1,380 +1,117 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>ESP32 Web Flasher + Terminal</title>
-
-<style>
-
-body{
-font-family:Arial;
-background:#1e1e2f;
-color:white;
-padding:20px;
-max-width:900px;
-margin:auto;
-}
-
-.container{
-background:#2d2d3a;
-padding:25px;
-border-radius:12px;
-}
-
-button{
-padding:10px 20px;
-border:none;
-border-radius:6px;
-cursor:pointer;
-margin:5px;
-font-weight:bold;
-}
-
-.primary{background:#6c7cff;color:white;}
-.success{background:#4caf50;color:white;}
-.danger{background:#ff5252;color:white;}
-.warning{background:#ffa726;color:black;}
-
-select,input{
-padding:10px;
-background:#353542;
-border:1px solid #555;
-color:white;
-border-radius:6px;
-}
-
-.log{
-background:#111;
-padding:15px;
-height:250px;
-overflow:auto;
-font-family:monospace;
-margin-top:10px;
-border-radius:8px;
-}
-
-.tab{
-display:inline-block;
-padding:10px 20px;
-background:#3a3a48;
-cursor:pointer;
-margin-right:5px;
-border-radius:6px;
-}
-
-.tab.active{
-background:#6c7cff;
-}
-
-.panel{display:none;}
-.panel.active{display:block;}
-
-.upload{
-border:2px dashed #6c7cff;
-padding:20px;
-text-align:center;
-margin:15px 0;
-cursor:pointer;
-}
-
-.progress{
-height:18px;
-background:#444;
-border-radius:8px;
-overflow:hidden;
-margin-top:10px;
-}
-
-.progress-bar{
-height:100%;
-background:#4caf50;
-width:0%;
-}
-
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Android ESP32 Flasher</title>
+    <style>
+        body { font-family: sans-serif; background: #121212; color: #fff; padding: 20px; margin: 0; text-align: center; }
+        .card { background: #1e1e1e; padding: 20px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); max-width: 500px; margin: auto; }
+        button { 
+            width: 100%; padding: 15px; margin: 10px 0; border-radius: 10px; border: none; 
+            font-weight: bold; font-size: 16px; cursor: pointer; transition: 0.3s;
+        }
+        .btn-connect { background: #3498db; color: white; }
+        .btn-flash { background: #27ae60; color: white; }
+        .btn-flash:disabled { background: #444; color: #888; }
+        #log { 
+            background: #000; color: #0f0; padding: 10px; height: 150px; 
+            overflow-y: auto; font-family: monospace; font-size: 12px; 
+            border-radius: 8px; text-align: left; margin-top: 20px;
+        }
+        .status { margin: 10px 0; padding: 10px; border-radius: 8px; font-weight: bold; display: none; }
+    </style>
 </head>
-
 <body>
 
-<div class="container">
-
-<h2>ESP32 Web Flasher + Serial Terminal</h2>
-
-<div>
-<span class="tab active" onclick="openTab('flash')">Firmware Flasher</span>
-<span class="tab" onclick="openTab('terminal')">Serial Terminal</span>
-</div>
-
-<!-- FLASHER -->
-<div id="flash" class="panel active">
-
-<div class="upload" onclick="fileInput.click()">
-Click to select firmware (.bin)
-<input type="file" id="fileInput" hidden accept=".bin">
-<div id="fileName">No file selected</div>
-</div>
-
-<select id="baud">
-<option value="115200">115200 Safe</option>
-<option value="460800">460800</option>
-<option value="921600" selected>921600 Fast</option>
-</select>
-
-<br>
-
-<button class="primary" onclick="selectPort()">Select ESP32</button>
-<button class="success" onclick="connectFlash()">Connect</button>
-<button class="warning" onclick="flashFirmware()">Flash</button>
-<button class="danger" onclick="disconnectFlash()">Disconnect</button>
-
-<div class="progress">
-<div id="progressBar" class="progress-bar"></div>
-</div>
-
-<div id="flashLog" class="log"></div>
-
-</div>
-
-<!-- TERMINAL -->
-<div id="terminal" class="panel">
-
-<select id="terminalBaud">
-<option>9600</option>
-<option selected>115200</option>
-<option>230400</option>
-<option>460800</option>
-</select>
-
-<br>
-
-<button class="primary" onclick="selectTerminal()">Select Port</button>
-<button class="success" onclick="connectTerminal()">Connect</button>
-<button class="danger" onclick="disconnectTerminal()">Disconnect</button>
-<button class="warning" onclick="clearTerminal()">Clear</button>
-
-<div id="terminalLog" class="log"></div>
-
-<input id="terminalInput" placeholder="Type command">
-<button onclick="sendTerminal()">Send</button>
-
-</div>
-
-</div>
-
-<script src="https://unpkg.com/@esphome/esptool-js@0.4.0/dist/webflasher-esptool.js"></script>
-
-<script>
-
-let port;
-let transport;
-let esploader;
-let firmware;
-
-let terminalPort;
-let reader;
-let writer;
-let terminalActive=false;
-
-function log(msg){
-let box=document.getElementById("flashLog");
-box.innerHTML+=msg+"<br>";
-box.scrollTop=box.scrollHeight;
-}
-
-function tlog(msg){
-let box=document.getElementById("terminalLog");
-box.innerHTML+=msg+"<br>";
-box.scrollTop=box.scrollHeight;
-}
-
-function openTab(name){
-
-document.querySelectorAll(".panel").forEach(p=>p.classList.remove("active"));
-document.getElementById(name).classList.add("active");
-
-document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
-event.target.classList.add("active");
-
-}
-
-fileInput.onchange=e=>{
-
-let file=e.target.files[0];
-
-document.getElementById("fileName").innerText=file.name;
-
-let reader=new FileReader();
-
-reader.onload=ev=>{
-firmware=ev.target.result;
-log("Firmware loaded "+file.size+" bytes");
-};
-
-reader.readAsArrayBuffer(file);
-
-};
-
-async function selectPort(){
-
-try{
-port=await navigator.serial.requestPort();
-log("Port selected");
-}
-catch(e){
-log("No port selected");
-}
-
-}
-
-async function connectFlash(){
-
-try{
-
-await port.open({
-baudRate:parseInt(document.getElementById("baud").value)
-});
-
-transport=new EsptoolJS.Transport(port);
-esploader=new EsptoolJS.ESPLoader(transport);
-
-log("Connecting to ESP32...");
-
-await esploader.main_fn();
-
-log("Connected to "+esploader.chip.chip_name);
-
-}
-catch(e){
-log("Connection error "+e);
-}
-
-}
-
-async function flashFirmware(){
-
-if(!firmware){
-log("Select firmware first");
-return;
-}
-
-try{
-
-log("Flashing...");
-
-await esploader.write_flash({
-
-fileArray:[
-{
-data:firmware,
-address:0x10000
-}
-],
-
-eraseAll:true,
-
-reportProgress:(cur,total)=>{
-
-let percent=Math.round(cur/total*100);
-
-document.getElementById("progressBar").style.width=percent+"%";
-
-}
-
-});
-
-log("Flash complete. Press RESET.");
-
-}
-catch(e){
-
-log("Flash error "+e);
-
-}
-
-}
-
-async function disconnectFlash(){
-
-try{
-await port.close();
-log("Disconnected");
-}
-catch(e){}
-
-}
-
-async function selectTerminal(){
-
-terminalPort=await navigator.serial.requestPort();
-tlog("Port selected");
-
-}
-
-async function connectTerminal(){
-
-await terminalPort.open({
-baudRate:parseInt(document.getElementById("terminalBaud").value)
-});
-
-terminalActive=true;
-
-const decoder=new TextDecoderStream();
-terminalPort.readable.pipeTo(decoder.writable);
-
-reader=decoder.readable.getReader();
-
-const encoder=new TextEncoderStream();
-encoder.readable.pipeTo(terminalPort.writable);
-
-writer=encoder.writable.getWriter();
-
-readLoop();
-
-tlog("Terminal connected");
-
-}
-
-async function readLoop(){
-
-while(terminalActive){
-
-let {value,done}=await reader.read();
-
-if(done)break;
-
-if(value)tlog(value);
-
-}
-
-}
-
-async function sendTerminal(){
-
-let txt=document.getElementById("terminalInput").value+"\n";
-
-await writer.write(txt);
-
-document.getElementById("terminalInput").value="";
-
-}
-
-async function disconnectTerminal(){
-
-terminalActive=false;
-
-await terminalPort.close();
-
-tlog("Terminal disconnected");
-
-}
-
-function clearTerminal(){
-
-document.getElementById("terminalLog").innerHTML="";
-
-}
-
-</script>
-
+    <div class="card">
+        <h2>ESP32 Android Flash</h2>
+        <div id="statusBox" class="status"></div>
+
+        <button class="btn-connect" id="btnConnect">🔌 1. Connect ESP32</button>
+        
+        <p style="font-size: 14px; color: #bbb;">2. Select Firmware (.bin)</p>
+        <input type="file" id="fileInput" accept=".bin" style="margin-bottom: 10px;">
+
+        <button class="btn-flash" id="btnFlash" disabled>⚡ 3. Start Flashing</button>
+        
+        <div id="log">Logs will appear here...</div>
+    </div>
+
+    <script src="https://unpkg.com/@esphome/esptool-js@0.4.0/dist/webflasher-esptool.js"></script>
+
+    <script>
+        let port, esploader, fileData;
+        const logEl = document.getElementById('log');
+        const statusEl = document.getElementById('statusBox');
+
+        function log(msg) {
+            logEl.innerHTML += `<div>> ${msg}</div>`;
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        function setStatus(msg, color) {
+            statusEl.style.display = 'block';
+            statusEl.style.background = color;
+            statusEl.innerText = msg;
+        }
+
+        // CONNECT LOGIC
+        document.getElementById('btnConnect').onclick = async () => {
+            try {
+                log("Requesting Port...");
+                // Filterless request for Android compatibility
+                port = await navigator.serial.requestPort({}); 
+                
+                await port.open({ baudRate: 115200 });
+                const transport = new EsptoolJS.Transport(port);
+                esploader = new EsptoolJS.ESPLoader(transport);
+                
+                setStatus("Syncing...", "#f39c12");
+                await esploader.main_fn();
+                const chip = await esploader.chip;
+                
+                setStatus(`Connected: ${chip.chip_name}`, "#27ae60");
+                log("Found: " + chip.chip_name);
+                
+                if (fileData) document.getElementById('btnFlash').disabled = false;
+            } catch (err) {
+                log("Error: " + err.message);
+                setStatus("Connection Failed", "#e74c3c");
+            }
+        };
+
+        // FILE LOAD LOGIC
+        document.getElementById('fileInput').onchange = (e) => {
+            const file = e.target.files[0];
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                fileData = ev.target.result;
+                log("File Loaded: " + file.name);
+                if (esploader) document.getElementById('btnFlash').disabled = false;
+            };
+            reader.readAsBinaryString(file);
+        };
+
+        // FLASH LOGIC
+        document.getElementById('btnFlash').onclick = async () => {
+            try {
+                log("Flashing started...");
+                await esploader.write_flash({
+                    fileArray: [{ data: fileData, address: 0x1000 }],
+                    flashSize: 'keep',
+                    reportProgress: (curr, total) => {
+                        const pct = Math.round((curr / total) * 100);
+                        setStatus(`Flashing: ${pct}%`, "#3498db");
+                    }
+                });
+                setStatus("Success!", "#27ae60");
+                log("✅ Done! Press Reset on ESP32.");
+            } catch (err) {
+                log("Flash Error: " + err.message);
+                setStatus("Flash Failed", "#e74c3c");
+            }
+        };
+    </script>
 </body>
 </html>
